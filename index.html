@@ -1,0 +1,1571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Focus Monitor</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
+<style>
+/* ── Reset ────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:          #0a0e1a;
+  --bg2:         #111827;
+  --bg3:         #1a2235;
+  --bg4:         #1e2a3d;
+  --border:      #1f2f4a;
+  --border2:     #253550;
+  --cyan:        #00c8ff;
+  --green:       #00e896;
+  --yellow:      #ffb800;
+  --red:         #ff4060;
+  --blue:        #3b82f6;
+  --text:        #c5d5f0;
+  --text2:       #7a9ac0;
+  --muted:       #3a5475;
+  --sidebar-w:   220px;
+  --mono:        'JetBrains Mono', monospace;
+  --sans:        'Outfit', sans-serif;
+  --radius:      10px;
+  --shadow:      0 4px 24px rgba(0,0,0,0.4);
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── Scanlines ────────────────────────────────────── */
+body::after {
+  content: '';
+  position: fixed; inset: 0;
+  background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.04) 2px, rgba(0,0,0,0.04) 4px);
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ── Layout Shell ─────────────────────────────────── */
+.shell { display: flex; height: 100vh; overflow: hidden; }
+
+/* ── Sidebar ──────────────────────────────────────── */
+.sidebar {
+  width: var(--sidebar-w);
+  background: var(--bg2);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  z-index: 100;
+}
+
+.sidebar-logo {
+  padding: 20px 16px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo-icon {
+  width: 36px; height: 36px;
+  background: linear-gradient(135deg, #0078aa, #00c8ff22);
+  border: 1.5px solid var(--cyan);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+  box-shadow: 0 0 14px rgba(0,200,255,0.25);
+  animation: logo-pulse 3s ease-in-out infinite;
+  flex-shrink: 0;
+}
+@keyframes logo-pulse {
+  0%,100% { box-shadow: 0 0 10px rgba(0,200,255,0.2); }
+  50%      { box-shadow: 0 0 20px rgba(0,200,255,0.5); }
+}
+.logo-name {
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 1px;
+  color: var(--cyan);
+  text-transform: uppercase;
+  line-height: 1.1;
+}
+.logo-tag {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--muted);
+  letter-spacing: 2px;
+}
+
+.sidebar-nav {
+  flex: 1;
+  padding: 16px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text2);
+  transition: all 0.18s;
+  border: 1px solid transparent;
+  user-select: none;
+}
+.nav-item:hover { background: var(--bg3); color: var(--text); }
+.nav-item.active {
+  background: rgba(0,200,255,0.08);
+  border-color: rgba(0,200,255,0.2);
+  color: var(--cyan);
+}
+.nav-icon { font-size: 16px; width: 20px; text-align: center; }
+
+.sidebar-footer {
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+}
+.cam-status {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px;
+  background: var(--bg3);
+  border-radius: 6px;
+  margin-bottom: 6px;
+}
+.cam-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: all 0.3s;
+}
+.cam-dot.live {
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green);
+  animation: blink 1.2s ease-in-out infinite;
+}
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+/* ── Main Content ─────────────────────────────────── */
+.content {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.page { display: none; flex: 1; overflow-y: auto; overflow-x: hidden; }
+.page.active { display: flex; flex-direction: column; }
+
+/* ── Page Header ──────────────────────────────────── */
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 28px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg2);
+  flex-shrink: 0;
+}
+.page-title { font-size: 20px; font-weight: 700; }
+.page-sub   { font-size: 12px; color: var(--text2); margin-top: 1px; }
+
+.btn {
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 9px 22px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+  letter-spacing: 0.4px;
+}
+.btn-start {
+  background: var(--green);
+  color: #021a0e;
+}
+.btn-start:hover:not(:disabled) { background: #00ffaa; box-shadow: 0 0 20px rgba(0,232,150,.4); }
+.btn-stop {
+  background: var(--red);
+  color: #fff;
+}
+.btn-stop:hover:not(:disabled) { background: #ff6080; box-shadow: 0 0 20px rgba(255,64,96,.4); }
+.btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.btn-sm {
+  padding: 6px 14px;
+  font-size: 12px;
+}
+.btn-outline {
+  background: transparent;
+  border: 1px solid var(--border2);
+  color: var(--text2);
+}
+.btn-outline:hover { border-color: var(--cyan); color: var(--cyan); background: rgba(0,200,255,.05); }
+
+/* ── Cards ────────────────────────────────────────── */
+.card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+}
+.card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.card-sub {
+  font-size: 11px;
+  color: var(--text2);
+  margin-bottom: 14px;
+}
+
+/* ── Metric Cards (top row) ───────────────────────── */
+.metrics-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 14px;
+  padding: 20px 28px 0;
+}
+.metric-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+.metric-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  color: var(--text2);
+  text-transform: uppercase;
+}
+.metric-value {
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1.2;
+  margin-top: 4px;
+}
+.metric-value.green  { color: var(--green); }
+.metric-value.yellow { color: var(--yellow); }
+.metric-value.red    { color: var(--red); }
+.metric-value.cyan   { color: var(--cyan); }
+.metric-sub {
+  font-size: 11px;
+  color: var(--text2);
+  margin-top: 2px;
+}
+.metric-sub .up   { color: var(--green); }
+.metric-sub .down { color: var(--red); }
+
+/* ── Dashboard Grid ───────────────────────────────── */
+.dash-grid {
+  display: grid;
+  grid-template-columns: 1fr 260px;
+  gap: 14px;
+  padding: 14px 28px 20px;
+  flex: 1;
+  min-height: 0;
+}
+
+.dash-left { display: flex; flex-direction: column; gap: 14px; }
+.dash-right { display: flex; flex-direction: column; gap: 14px; }
+
+/* ── Chart ────────────────────────────────────────── */
+.chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.chart-canvas-wrap {
+  position: relative;
+  height: 120px;
+}
+canvas.sparkcanvas {
+  width: 100%;
+  height: 100%;
+}
+
+/* ── Donut Chart ──────────────────────────────────── */
+.donut-wrap {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+.donut-svg { flex-shrink: 0; }
+.donut-legend { display: flex; flex-direction: column; gap: 8px; }
+.legend-item {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px;
+}
+.legend-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.legend-pct { font-weight: 700; margin-left: auto; padding-left: 16px; }
+
+/* ── Bottom Three Cards ───────────────────────────── */
+.dash-bottom {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 14px;
+}
+
+/* Session details table */
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.detail-row:last-child { border-bottom: none; }
+.detail-key { color: var(--text2); }
+.detail-val { font-family: var(--mono); font-size: 12px; }
+
+/* Activity feed */
+.activity-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.activity-item:last-child { border-bottom: none; }
+.activity-time { font-family: var(--mono); font-size: 11px; color: var(--text2); min-width: 80px; }
+.activity-dot  { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+
+/* Tips */
+.tip-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text2);
+  padding: 4px 0;
+}
+.tip-bullet { color: var(--cyan); font-size: 16px; line-height: 1.2; }
+
+/* ── Live Monitor Page ───────────────────────────── */
+.live-grid {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 0;
+  flex: 1;
+  min-height: 0;
+}
+
+.live-feed-col {
+  padding: 20px 14px 20px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+}
+
+.camera-wrap {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--bg3);
+  box-shadow: var(--shadow);
+}
+.camera-wrap img { width: 100%; display: block; }
+
+.cam-corner {
+  position: absolute;
+  width: 18px; height: 18px;
+  border-color: var(--cyan);
+  border-style: solid;
+  opacity: 0.6;
+}
+.cam-corner.tl { top: 10px; left: 10px;  border-width: 2px 0 0 2px; }
+.cam-corner.tr { top: 10px; right: 10px; border-width: 2px 2px 0 0; }
+.cam-corner.bl { bottom: 10px; left: 10px;  border-width: 0 0 2px 2px; }
+.cam-corner.br { bottom: 10px; right: 10px; border-width: 0 2px 2px 0; }
+
+.live-stats-bar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+.live-stat {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  text-align: center;
+}
+.live-stat-label { font-size: 11px; color: var(--text2); display: flex; align-items: center; justify-content: center; gap: 5px; }
+.live-stat-dot   { width: 7px; height: 7px; border-radius: 50%; }
+.live-stat-val   { font-size: 20px; font-weight: 800; margin-top: 4px; }
+.live-stat-val.green  { color: var(--green); }
+.live-stat-val.yellow { color: var(--yellow); }
+.live-stat-val.red    { color: var(--red); }
+.live-stat-val.cyan   { color: var(--cyan); }
+
+.live-right-col {
+  padding: 20px 28px 20px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+}
+
+.state-badge-big {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+  border-radius: var(--radius);
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  border: 2px solid;
+  transition: all 0.4s;
+}
+.state-badge-big.Focused    { background: rgba(0,232,150,.08); border-color: var(--green); color: var(--green); }
+.state-badge-big.Distracted { background: rgba(255,184,0,.08);  border-color: var(--yellow); color: var(--yellow); }
+.state-badge-big.Away       { background: rgba(255,64,96,.08);  border-color: var(--red);    color: var(--red); }
+.state-badge-big.Offline    { background: rgba(58,84,117,.08);  border-color: var(--muted);  color: var(--muted); }
+.state-badge-big.Initializing { background: rgba(0,200,255,.05); border-color: var(--cyan); color: var(--cyan); }
+
+/* Breakdown bars */
+.bar-row { margin-bottom: 10px; }
+.bar-meta { display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 13px; }
+.bar-track { height: 7px; background: var(--bg3); border-radius: 4px; overflow: hidden; }
+.bar-fill  { height: 100%; border-radius: 4px; transition: width 0.5s ease; }
+
+/* Sparkline */
+#sparkline {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 60px;
+}
+.spark-bar {
+  flex: 1;
+  border-radius: 2px 2px 0 0;
+  transition: height 0.2s, background 0.2s;
+  min-width: 2px;
+}
+
+/* ── Statistics Page ──────────────────────────────── */
+.stats-page-body {
+  padding: 20px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+  flex: 1;
+}
+.stats-top-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+.stats-top-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+.stats-top-label { font-size: 10px; letter-spacing: 1.5px; color: var(--text2); text-transform: uppercase; font-weight: 600; }
+.stats-top-val   { font-size: 26px; font-weight: 800; margin-top: 4px; }
+.stats-top-val.green  { color: var(--green); }
+.stats-top-val.cyan   { color: var(--cyan); }
+.stats-top-sub   { font-size: 11px; color: var(--text2); }
+
+.stats-charts-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.summary-box {
+  background: var(--bg3);
+  border-radius: 8px;
+  padding: 14px;
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--text2);
+  line-height: 1.7;
+}
+.trophy-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+  font-size: 28px;
+}
+
+/* ── History Page ─────────────────────────────────── */
+.history-page-body {
+  padding: 20px 28px;
+  overflow-y: auto;
+  flex: 1;
+}
+table.hist-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+table.hist-table th {
+  text-align: left;
+  padding: 10px 12px;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--text2);
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+}
+table.hist-table td {
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--border);
+}
+table.hist-table tr:last-child td { border-bottom: none; }
+table.hist-table tr:hover td { background: var(--bg3); }
+.hist-table .green  { color: var(--green);  font-weight: 700; }
+.hist-table .yellow { color: var(--yellow); font-weight: 700; }
+.hist-table .red    { color: var(--red);    font-weight: 700; }
+.load-more-wrap { text-align: center; margin-top: 20px; }
+
+/* ── Settings Page ────────────────────────────────── */
+.settings-body {
+  padding: 20px 28px;
+  overflow-y: auto;
+  flex: 1;
+}
+.settings-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.settings-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text2);
+  margin-bottom: 14px;
+}
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.setting-row:last-child { border-bottom: none; }
+.setting-label { color: var(--text); }
+.setting-sub   { font-size: 11px; color: var(--text2); margin-top: 2px; }
+
+/* Toggle Switch */
+.toggle {
+  position: relative;
+  width: 40px; height: 22px;
+  flex-shrink: 0;
+}
+.toggle input { opacity: 0; width: 0; height: 0; }
+.toggle-slider {
+  position: absolute; inset: 0;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: 11px;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+.toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 16px; height: 16px;
+  left: 2px; top: 2px;
+  background: var(--text2);
+  border-radius: 50%;
+  transition: all 0.3s;
+}
+.toggle input:checked + .toggle-slider { background: rgba(0,200,255,.2); border-color: var(--cyan); }
+.toggle input:checked + .toggle-slider::before { transform: translateX(18px); background: var(--cyan); }
+
+/* Select & Range */
+select.setting-select {
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  padding: 6px 10px;
+  cursor: pointer;
+  min-width: 120px;
+}
+input[type=range].setting-range {
+  width: 120px;
+  accent-color: var(--cyan);
+}
+.range-val {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--cyan);
+  min-width: 24px;
+  text-align: right;
+}
+
+.settings-actions {
+  margin-top: 20px;
+  display: flex;
+  gap: 12px;
+}
+
+/* ── Session End Overlay ──────────────────────────── */
+.session-end-overlay {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(4px);
+  z-index: 500;
+  align-items: center;
+  justify-content: center;
+}
+.session-end-overlay.show { display: flex; }
+.session-end-card {
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: 14px;
+  padding: 36px 40px;
+  width: 400px;
+  text-align: center;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.6);
+  animation: pop-in 0.3s ease;
+}
+@keyframes pop-in {
+  from { transform: scale(0.9); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+.session-end-trophy { font-size: 48px; margin-bottom: 10px; }
+.session-end-title { font-size: 22px; font-weight: 800; color: var(--cyan); }
+.session-end-sub   { font-size: 13px; color: var(--text2); margin-top: 4px; }
+.session-end-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin: 24px 0;
+}
+.end-stat-label { font-size: 10px; color: var(--text2); letter-spacing: 1px; text-transform: uppercase; }
+.end-stat-val   { font-size: 20px; font-weight: 800; margin-top: 4px; }
+.session-end-btns { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.btn-full { width: 100%; text-align: center; }
+
+/* Utility */
+.text-green  { color: var(--green); }
+.text-yellow { color: var(--yellow); }
+.text-red    { color: var(--red); }
+.text-cyan   { color: var(--cyan); }
+.text-muted  { color: var(--text2); }
+.mono        { font-family: var(--mono); }
+.fw700       { font-weight: 700; }
+
+/* Scroll */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+<!-- ══ SIDEBAR ══════════════════════════════════════ -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-icon">🎯</div>
+    <div>
+      <div class="logo-name">Focus Monitor</div>
+      <div class="logo-tag">v2.0.0</div>
+    </div>
+  </div>
+
+  <nav class="sidebar-nav">
+    <div class="nav-item active" onclick="showPage('dashboard')">
+      <span class="nav-icon">🏠</span> Dashboard
+    </div>
+    <div class="nav-item" onclick="showPage('live')">
+      <span class="nav-icon">📹</span> Live Monitor
+    </div>
+    <div class="nav-item" onclick="showPage('statistics')">
+      <span class="nav-icon">📊</span> Statistics
+    </div>
+    <div class="nav-item" onclick="showPage('history')">
+      <span class="nav-icon">🕓</span> History
+    </div>
+    <div class="nav-item" onclick="showPage('settings')">
+      <span class="nav-icon">⚙️</span> Settings
+    </div>
+    <div class="nav-item" onclick="showPage('about')">
+      <span class="nav-icon">ℹ️</span> About
+    </div>
+  </nav>
+
+  <div class="sidebar-footer">
+    <div class="cam-status">
+      <div class="cam-dot" id="camDot"></div>
+      <span id="camLabel">Camera OFFLINE</span>
+    </div>
+    <div style="font-size:9px;color:var(--muted)">v2.0.0 · Focus Monitor</div>
+  </div>
+</aside>
+
+<!-- ══ CONTENT AREA ══════════════════════════════════ -->
+<div class="content">
+
+  <!-- ─── DASHBOARD PAGE ─────────────────────────── -->
+  <div class="page active" id="page-dashboard">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Dashboard</div>
+        <div class="page-sub">Overview of your focus session</div>
+      </div>
+      <button class="btn btn-start" id="btnStartDash" onclick="startSession()">▶ Start Session</button>
+    </div>
+
+    <!-- Metrics Row -->
+    <div class="metrics-row">
+      <div class="metric-card">
+        <div class="metric-label">Focus Score</div>
+        <div class="metric-value green" id="dScore">—</div>
+        <div class="metric-sub" id="dScoreSub">Start a session</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Focused</div>
+        <div class="metric-value" id="dFocused">—</div>
+        <div class="metric-sub text-green" id="dFPct">—</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Distracted</div>
+        <div class="metric-value" id="dDistracted">—</div>
+        <div class="metric-sub text-yellow" id="dDPct">—</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Away</div>
+        <div class="metric-value" id="dAway">—</div>
+        <div class="metric-sub text-red" id="dAPct">—</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Longest Streak</div>
+        <div class="metric-value cyan" id="dStreak">—</div>
+        <div class="metric-sub">mm:ss</div>
+      </div>
+    </div>
+
+    <!-- Dash Grid -->
+    <div class="dash-grid">
+      <div class="dash-left">
+        <!-- Focus over time -->
+        <div class="card">
+          <div class="chart-header">
+            <div>
+              <div class="card-title">Focus Score Over Time</div>
+            </div>
+          </div>
+          <div class="chart-canvas-wrap">
+            <canvas id="dashChartCanvas"></canvas>
+          </div>
+        </div>
+
+        <!-- Bottom 3 -->
+        <div class="dash-bottom">
+          <!-- Session Details -->
+          <div class="card">
+            <div class="card-title">Session Details</div>
+            <div class="card-sub">Current session info</div>
+            <div class="detail-row"><span class="detail-key">Session Time</span><span class="detail-val mono" id="detDuration">—</span></div>
+            <div class="detail-row"><span class="detail-key">Total Frames</span><span class="detail-val mono" id="detTotal">—</span></div>
+            <div class="detail-row"><span class="detail-key">FPS (avg)</span><span class="detail-val mono" id="detFps">—</span></div>
+            <div class="detail-row"><span class="detail-key">Started At</span><span class="detail-val mono" id="detStarted">—</span></div>
+          </div>
+
+          <!-- Recent Activity -->
+          <div class="card">
+            <div class="card-title">Recent Activity</div>
+            <div class="card-sub">State changes</div>
+            <div id="activityFeed"></div>
+          </div>
+
+          <!-- Tips -->
+          <div class="card">
+            <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
+              Tips <span style="font-size:20px">💡</span>
+            </div>
+            <div class="card-sub">For better focus tracking</div>
+            <div class="tip-item"><span class="tip-bullet">•</span> Keep your face visible to the camera</div>
+            <div class="tip-item"><span class="tip-bullet">•</span> Look at the screen when working</div>
+            <div class="tip-item"><span class="tip-bullet">•</span> Avoid distractions and phone use</div>
+            <div class="tip-item"><span class="tip-bullet">•</span> Good lighting helps detection</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dash-right">
+        <!-- Focus Distribution donut -->
+        <div class="card">
+          <div class="card-title">Focus Distribution</div>
+          <div style="margin-top:14px;">
+            <div class="donut-wrap">
+              <svg class="donut-svg" width="110" height="110" viewBox="0 0 110 110">
+                <circle cx="55" cy="55" r="40" fill="none" stroke="#1a2235" stroke-width="18"/>
+                <circle id="donutF" cx="55" cy="55" r="40" fill="none" stroke="#00e896" stroke-width="18"
+                        stroke-dasharray="0 251" stroke-linecap="round"
+                        transform="rotate(-90 55 55)" style="transition:stroke-dasharray .5s"/>
+                <circle id="donutD" cx="55" cy="55" r="40" fill="none" stroke="#ffb800" stroke-width="18"
+                        stroke-dasharray="0 251" stroke-linecap="round"
+                        transform="rotate(-90 55 55)" style="transition:stroke-dasharray .5s"/>
+                <circle id="donutA" cx="55" cy="55" r="40" fill="none" stroke="#ff4060" stroke-width="18"
+                        stroke-dasharray="0 251" stroke-linecap="round"
+                        transform="rotate(-90 55 55)" style="transition:stroke-dasharray .5s"/>
+              </svg>
+              <div class="donut-legend">
+                <div class="legend-item">
+                  <div class="legend-dot" style="background:var(--green)"></div>
+                  Focused
+                  <span class="legend-pct text-green" id="legFPct">—</span>
+                </div>
+                <div class="legend-item">
+                  <div class="legend-dot" style="background:var(--yellow)"></div>
+                  Distracted
+                  <span class="legend-pct text-yellow" id="legDPct">—</span>
+                </div>
+                <div class="legend-item">
+                  <div class="legend-dot" style="background:var(--red)"></div>
+                  Away
+                  <span class="legend-pct text-red" id="legAPct">—</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── LIVE MONITOR PAGE ──────────────────────── -->
+  <div class="page" id="page-live">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Live Monitor</div>
+        <div class="page-sub">Real-time focus detection</div>
+      </div>
+      <button class="btn btn-stop" id="btnStopLive" onclick="stopSession()" disabled>⏹ Stop Session</button>
+    </div>
+
+    <div class="live-grid">
+      <div class="live-feed-col">
+        <!-- Camera -->
+        <div class="camera-wrap">
+          <img id="feed" src="/video_feed" alt="camera feed"/>
+          <div class="cam-corner tl"></div>
+          <div class="cam-corner tr"></div>
+          <div class="cam-corner bl"></div>
+          <div class="cam-corner br"></div>
+        </div>
+
+        <!-- 4-stat bar -->
+        <div class="live-stats-bar">
+          <div class="live-stat">
+            <div class="live-stat-label"><div class="live-stat-dot" style="background:var(--green)"></div> Focused</div>
+            <div class="live-stat-val green" id="lFPct">—</div>
+          </div>
+          <div class="live-stat">
+            <div class="live-stat-label"><div class="live-stat-dot" style="background:var(--yellow)"></div> Distracted</div>
+            <div class="live-stat-val yellow" id="lDPct">—</div>
+          </div>
+          <div class="live-stat">
+            <div class="live-stat-label"><div class="live-stat-dot" style="background:var(--red)"></div> Away</div>
+            <div class="live-stat-val red" id="lAPct">—</div>
+          </div>
+          <div class="live-stat">
+            <div class="live-stat-label">🏆 Streak</div>
+            <div class="live-stat-val cyan" id="lStreak">—</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="live-right-col">
+        <!-- State badge -->
+        <div class="state-badge-big Offline" id="stateBadge">OFFLINE</div>
+
+        <!-- Score & Duration -->
+        <div class="card">
+          <div class="card-title">Focus Score</div>
+          <div style="font-size:40px;font-weight:800;color:var(--green);margin:6px 0" id="lScore">—</div>
+          <div style="font-size:12px;color:var(--text2)">Session Time: <span class="mono text-cyan" id="lDuration">00:00:00</span></div>
+        </div>
+
+        <!-- Breakdown bars -->
+        <div class="card">
+          <div class="card-title">Focus Breakdown</div>
+          <div style="margin-top:12px">
+            <div class="bar-row">
+              <div class="bar-meta">
+                <span class="text-green" style="font-size:13px">● Focused</span>
+                <span class="text-green fw700" id="bFPct">0%</span>
+              </div>
+              <div class="bar-track"><div class="bar-fill" id="bFBar" style="width:0%;background:var(--green)"></div></div>
+            </div>
+            <div class="bar-row">
+              <div class="bar-meta">
+                <span class="text-yellow" style="font-size:13px">● Distracted</span>
+                <span class="text-yellow fw700" id="bDPct">0%</span>
+              </div>
+              <div class="bar-track"><div class="bar-fill" id="bDBar" style="width:0%;background:var(--yellow)"></div></div>
+            </div>
+            <div class="bar-row">
+              <div class="bar-meta">
+                <span class="text-red" style="font-size:13px">● Away</span>
+                <span class="text-red fw700" id="bAPct">0%</span>
+              </div>
+              <div class="bar-track"><div class="bar-fill" id="bABar" style="width:0%;background:var(--red)"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sparkline -->
+        <div class="card">
+          <div class="card-title" style="margin-bottom:10px">Focus Activity</div>
+          <div id="sparkline"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── STATISTICS PAGE ───────────────────────── -->
+  <div class="page" id="page-statistics">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Statistics</div>
+        <div class="page-sub">Detailed session statistics</div>
+      </div>
+    </div>
+    <div class="stats-page-body">
+      <div class="stats-top-row">
+        <div class="stats-top-card">
+          <div class="stats-top-label">Focus Score</div>
+          <div class="stats-top-val green" id="stScore">—</div>
+          <div class="stats-top-sub" id="stScoreSub">—</div>
+        </div>
+        <div class="stats-top-card">
+          <div class="stats-top-label">Total Time</div>
+          <div class="stats-top-val cyan" id="stDuration">00:00:00</div>
+          <div class="stats-top-sub">hh:mm:ss</div>
+        </div>
+        <div class="stats-top-card">
+          <div class="stats-top-label">Total Frames</div>
+          <div class="stats-top-val" id="stFrames">—</div>
+          <div class="stats-top-sub">Captured</div>
+        </div>
+        <div class="stats-top-card">
+          <div class="stats-top-label">Avg FPS</div>
+          <div class="stats-top-val" id="stFps">—</div>
+          <div class="stats-top-sub">Frames/sec</div>
+        </div>
+      </div>
+
+      <div class="stats-charts-row">
+        <div class="card">
+          <div class="card-title">Focus Over Time</div>
+          <div class="chart-canvas-wrap" style="height:100px;margin-top:10px">
+            <canvas id="statsChartCanvas"></canvas>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">Focus Distribution</div>
+          <div style="margin-top:14px">
+            <div class="donut-wrap">
+              <svg class="donut-svg" width="100" height="100" viewBox="0 0 100 100">
+                <circle cx="50" cy="50" r="35" fill="none" stroke="#1a2235" stroke-width="16"/>
+                <circle id="donutF2" cx="50" cy="50" r="35" fill="none" stroke="#00e896" stroke-width="16"
+                        stroke-dasharray="0 220" stroke-linecap="round"
+                        transform="rotate(-90 50 50)" style="transition:stroke-dasharray .5s"/>
+                <circle id="donutD2" cx="50" cy="50" r="35" fill="none" stroke="#ffb800" stroke-width="16"
+                        stroke-dasharray="0 220" stroke-linecap="round"
+                        transform="rotate(-90 50 50)" style="transition:stroke-dasharray .5s"/>
+                <circle id="donutA2" cx="50" cy="50" r="35" fill="none" stroke="#ff4060" stroke-width="16"
+                        stroke-dasharray="0 220" stroke-linecap="round"
+                        transform="rotate(-90 50 50)" style="transition:stroke-dasharray .5s"/>
+              </svg>
+              <div class="donut-legend">
+                <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div>Focused<span class="legend-pct text-green" id="stFPct">—</span></div>
+                <div class="legend-item"><div class="legend-dot" style="background:var(--yellow)"></div>Distracted<span class="legend-pct text-yellow" id="stDPct">—</span></div>
+                <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div>Away<span class="legend-pct text-red" id="stAPct">—</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Summary</div>
+        <div class="summary-box" id="summaryText">Start a session to see your performance summary.</div>
+        <div class="trophy-row" id="trophyRow"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── HISTORY PAGE ──────────────────────────── -->
+  <div class="page" id="page-history">
+    <div class="page-header">
+      <div>
+        <div class="page-title">History</div>
+        <div class="page-sub">View your past sessions</div>
+      </div>
+    </div>
+    <div class="history-page-body">
+      <div class="card">
+        <table class="hist-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Duration</th>
+              <th>Focus Score</th>
+              <th>Focused</th>
+              <th>Distracted</th>
+              <th>Away</th>
+              <th>Longest Streak</th>
+            </tr>
+          </thead>
+          <tbody id="historyBody">
+            <tr><td colspan="7" style="text-align:center;color:var(--text2);padding:30px">No sessions yet. Start your first session!</td></tr>
+          </tbody>
+        </table>
+        <div class="load-more-wrap" id="loadMoreWrap" style="display:none">
+          <button class="btn btn-outline btn-sm" onclick="loadHistory(true)">Load More</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── SETTINGS PAGE ─────────────────────────── -->
+  <div class="page" id="page-settings">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Settings</div>
+        <div class="page-sub">Customize your experience</div>
+      </div>
+    </div>
+    <div class="settings-body">
+      <div class="settings-grid">
+        <!-- General -->
+        <div class="card">
+          <div class="settings-section-title">General</div>
+          <div class="setting-row">
+            <div><div class="setting-label">FPS Limit</div><div class="setting-sub">Detection frame rate</div></div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <input type="range" class="setting-range" min="5" max="30" step="5" id="setFps" oninput="document.getElementById('setFpsVal').textContent=this.value" onchange="saveSetting('fps_limit',+this.value)"/>
+              <span class="range-val" id="setFpsVal">15</span>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div><div class="setting-label">Away Threshold (seconds)</div><div class="setting-sub">Time before flagging away</div></div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <input type="range" class="setting-range" min="5" max="60" step="5" id="setAway" oninput="document.getElementById('setAwayVal').textContent=this.value" onchange="saveSetting('away_threshold',+this.value)"/>
+              <span class="range-val" id="setAwayVal">15</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Display -->
+        <div class="card">
+          <div class="settings-section-title">Display</div>
+          <div class="setting-row">
+            <div><div class="setting-label">Show Face Detection</div><div class="setting-sub">Draw box around face</div></div>
+            <label class="toggle"><input type="checkbox" id="setFaceBox" onchange="saveSetting('show_face_detection',this.checked)" checked/><span class="toggle-slider"></span></label>
+          </div>
+          <div class="setting-row">
+            <div><div class="setting-label">Show Eye Detection</div><div class="setting-sub">Draw box around eyes</div></div>
+            <label class="toggle"><input type="checkbox" id="setEyeBox" onchange="saveSetting('show_eye_detection',this.checked)" checked/><span class="toggle-slider"></span></label>
+          </div>
+          <div class="setting-row">
+            <div><div class="setting-label">Show Overlay Info</div><div class="setting-sub">Score & time on video</div></div>
+            <label class="toggle"><input type="checkbox" id="setOverlay" onchange="saveSetting('show_overlay_info',this.checked)" checked/><span class="toggle-slider"></span></label>
+          </div>
+        </div>
+
+        <!-- Alerts -->
+        <div class="card">
+          <div class="settings-section-title">Alerts</div>
+          <div class="setting-row">
+            <div><div class="setting-label">Notify When Away</div><div class="setting-sub">Browser notification</div></div>
+            <label class="toggle"><input type="checkbox" id="setNotify" onchange="saveSetting('notify_when_away',this.checked)" checked/><span class="toggle-slider"></span></label>
+          </div>
+        </div>
+
+        <!-- Other -->
+        <div class="card">
+          <div class="settings-section-title">Other</div>
+          <div class="setting-row">
+            <div class="setting-label">Theme</div>
+            <select class="setting-select" id="setTheme" onchange="saveSetting('theme',this.value)">
+              <option value="dark">Dark</option>
+              <option value="darker">Darker</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="settings-actions">
+        <button class="btn btn-stop" onclick="resetSettings()">Reset All Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── ABOUT PAGE ────────────────────────────── -->
+  <div class="page" id="page-about">
+    <div class="page-header">
+      <div>
+        <div class="page-title">About</div>
+        <div class="page-sub">Focus Monitor v2.0.0</div>
+      </div>
+    </div>
+    <div style="padding:40px 28px;max-width:600px">
+      <div class="card" style="text-align:center;padding:36px">
+        <div style="font-size:56px;margin-bottom:16px">🎯</div>
+        <div style="font-size:24px;font-weight:800;color:var(--cyan)">Focus Monitor</div>
+        <div style="font-size:13px;color:var(--text2);margin-top:6px">Real-time focus detection using computer vision</div>
+        <div style="margin-top:24px;font-size:13px;color:var(--text2);line-height:1.8">
+          Focus Monitor uses OpenCV Haar cascades to detect your face and eyes via webcam.
+          It tracks how focused you are over time, giving you insights into your work habits.
+        </div>
+        <div style="margin-top:20px;font-family:var(--mono);font-size:11px;color:var(--muted)">
+          Built with Flask · OpenCV · Python
+        </div>
+      </div>
+      <div style="margin-top:16px;display:flex;gap:8px;flex-direction:column">
+        <div class="card">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <span class="text-green">▶ Start Session</span>
+            <span style="color:var(--text2);font-size:13px">Begin tracking on Dashboard</span>
+          </div>
+        </div>
+        <div class="card">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <span class="text-cyan">📹 Live Monitor</span>
+            <span style="color:var(--text2);font-size:13px">See real-time camera feed</span>
+          </div>
+        </div>
+        <div class="card">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <span class="text-yellow">🕓 History</span>
+            <span style="color:var(--text2);font-size:13px">Browse past session records</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /content -->
+</div><!-- /shell -->
+
+<!-- ══ SESSION END OVERLAY ════════════════════════════ -->
+<div class="session-end-overlay" id="endOverlay">
+  <div class="session-end-card">
+    <div class="session-end-trophy">🏆</div>
+    <div class="session-end-title">Session Ended!</div>
+    <div class="session-end-sub">Great job! Keep improving.</div>
+    <div class="session-end-stats">
+      <div>
+        <div class="end-stat-label">Focus Score</div>
+        <div class="end-stat-val text-green" id="endScore">—</div>
+      </div>
+      <div>
+        <div class="end-stat-label">Duration</div>
+        <div class="end-stat-val text-cyan" id="endDuration">—</div>
+      </div>
+      <div>
+        <div class="end-stat-label">Longest Streak</div>
+        <div class="end-stat-val text-yellow" id="endStreak">—</div>
+      </div>
+    </div>
+    <div class="session-end-btns">
+      <button class="btn btn-start btn-full" onclick="viewSummary()">View Summary</button>
+      <button class="btn btn-outline btn-full" onclick="closeEndOverlay()">Back to Dashboard</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────
+let polling = null;
+let lastData = null;
+let historyPage = 1;
+let isRunning = false;
+let scoreHistory = [];
+
+// ── Donut helpers ──────────────────────────────────────
+function setDonut(fId, dId, aId, radius, fpct, dpct, apct) {
+  const circ = 2 * Math.PI * radius;
+  const fLen = (fpct / 100) * circ;
+  const dLen = (dpct / 100) * circ;
+  const aLen = (apct / 100) * circ;
+  const fOff = 0;
+  const dOff = -(fLen);
+  const aOff = -(fLen + dLen);
+
+  const fEl = document.getElementById(fId);
+  const dEl = document.getElementById(dId);
+  const aEl = document.getElementById(aId);
+
+  fEl.setAttribute('stroke-dasharray', `${fLen} ${circ - fLen}`);
+  fEl.setAttribute('stroke-dashoffset', fOff);
+
+  dEl.setAttribute('stroke-dasharray', `${dLen} ${circ - dLen}`);
+  dEl.setAttribute('stroke-dashoffset', dOff);
+
+  aEl.setAttribute('stroke-dasharray', `${aLen} ${circ - aLen}`);
+  aEl.setAttribute('stroke-dashoffset', aOff);
+}
+
+// ── Simple line chart on canvas ────────────────────────
+function drawChart(canvasId, data) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width === 0) return;
+  canvas.width  = rect.width  * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+
+  ctx.clearRect(0, 0, W, H);
+  if (!data || data.length < 2) {
+    ctx.fillStyle = '#3a5475';
+    ctx.font = '12px Outfit';
+    ctx.textAlign = 'center';
+    ctx.fillText('Waiting for data...', W/2, H/2);
+    return;
+  }
+
+  // Grid lines
+  ctx.strokeStyle = '#1a2235';
+  ctx.lineWidth = 1;
+  [25,50,75,100].forEach(pct => {
+    const y = H - (pct/100)*H;
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
+  });
+
+  // Labels
+  ctx.fillStyle = '#3a5475';
+  ctx.font = '9px JetBrains Mono';
+  ctx.textAlign = 'left';
+  ['100%','75%','50%','25%','0%'].forEach((l,i) => {
+    ctx.fillText(l, 2, i*H/4+10);
+  });
+
+  const pts = data.map((v,i) => ({
+    x: (i/(data.length-1))*W,
+    y: H - (v/100)*H
+  }));
+
+  // Gradient fill
+  const grad = ctx.createLinearGradient(0,0,0,H);
+  grad.addColorStop(0, 'rgba(0,232,150,0.25)');
+  grad.addColorStop(1, 'rgba(0,232,150,0)');
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, H);
+  pts.forEach(p => ctx.lineTo(p.x, p.y));
+  ctx.lineTo(pts[pts.length-1].x, H);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  pts.forEach(p => ctx.lineTo(p.x, p.y));
+  ctx.strokeStyle = '#00e896';
+  ctx.lineWidth = 2;
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+}
+
+// ── Sparkline ──────────────────────────────────────────
+function renderSparkline(history) {
+  const el = document.getElementById('sparkline');
+  if (!el) return;
+  el.innerHTML = '';
+  history.forEach(val => {
+    const bar = document.createElement('div');
+    bar.className = 'spark-bar';
+    if (val === 1)        { bar.style.background = 'var(--green)';  bar.style.height = '100%'; }
+    else if (val === 0.5) { bar.style.background = 'var(--yellow)'; bar.style.height = '55%'; }
+    else                  { bar.style.background = 'var(--red)';    bar.style.height = '22%'; }
+    el.appendChild(bar);
+  });
+}
+
+// ── Start / Stop ───────────────────────────────────────
+async function startSession() {
+  const res  = await fetch('/start', { method: 'POST' });
+  const data = await res.json();
+  if (data.status === 'started' || data.status === 'already_running') {
+    isRunning = true;
+    scoreHistory = [];
+    setRunningUI(true);
+    showPage('live');
+    polling = setInterval(fetchStats, 600);
+  } else {
+    alert('Error: ' + (data.message || 'Could not start session'));
+  }
+}
+
+async function stopSession() {
+  const res  = await fetch('/stop', { method: 'POST' });
+  const data = await res.json();
+  clearInterval(polling);
+  isRunning = false;
+  setRunningUI(false);
+
+  if (data.summary) {
+    showEndOverlay(data.summary);
+  }
+}
+
+function setRunningUI(running) {
+  document.getElementById('camDot').classList.toggle('live', running);
+  document.getElementById('camLabel').textContent = running ? 'Camera LIVE' : 'Camera OFFLINE';
+  document.getElementById('btnStartDash').disabled  =  running;
+  document.getElementById('btnStopLive').disabled   = !running;
+  if (!running) {
+    document.getElementById('stateBadge').className = 'state-badge-big Offline';
+    document.getElementById('stateBadge').textContent = 'OFFLINE';
+  }
+}
+
+// ── Fetch & Update ─────────────────────────────────────
+async function fetchStats() {
+  try {
+    const res  = await fetch('/stats');
+    const data = await res.json();
+    lastData = data;
+    updateUI(data);
+  } catch(e) { console.error(e); }
+}
+
+function fmtStreak(frames, fps) {
+  fps = fps || 15;
+  const secs = Math.round(frames / fps);
+  const m = Math.floor(secs/60), s = secs%60;
+  return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+function scoreGrade(s) {
+  if (s >= 80) return '🌟 Outstanding!';
+  if (s >= 65) return '✅ Great job!';
+  if (s >= 45) return '👍 Good effort';
+  return '💪 Keep going!';
+}
+
+function updateUI(d) {
+  // Badge
+  const badge = document.getElementById('stateBadge');
+  badge.className = 'state-badge-big ' + d.state;
+  badge.textContent = d.state.toUpperCase();
+
+  const fps  = d.avg_fps || 15;
+  const stk  = fmtStreak(d.longest, fps);
+  const fpct = d.f_pct + '%';
+  const dpct = d.d_pct + '%';
+  const apct = d.a_pct + '%';
+
+  // Append to score history for chart
+  scoreHistory.push(d.score);
+  if (scoreHistory.length > 100) scoreHistory.shift();
+
+  // ── Dashboard ──
+  document.getElementById('dScore').textContent = d.score + '%';
+  document.getElementById('dScore').className   = 'metric-value ' + scoreColor(d.score);
+  document.getElementById('dScoreSub').textContent = scoreGrade(d.score);
+  document.getElementById('dFocused').textContent  = d.focused;
+  document.getElementById('dFPct').textContent     = fpct;
+  document.getElementById('dDistracted').textContent = d.distracted;
+  document.getElementById('dDPct').textContent     = dpct;
+  document.getElementById('dAway').textContent     = d.away;
+  document.getElementById('dAPct').textContent     = apct;
+  document.getElementById('dStreak').textContent   = stk;
+  document.getElementById('detDuration').textContent = d.duration;
+  document.getElementById('detTotal').textContent    = d.total;
+  document.getElementById('detFps').textContent      = (d.avg_fps||0).toFixed(1);
+  document.getElementById('detStarted').textContent  = d.started_at || '—';
+
+  // Activity feed
+  const af = document.getElementById('activityFeed');
+  if (d.activity && d.activity.length) {
+    const items = [...d.activity].reverse().slice(0, 5);
+    af.innerHTML = items.map(a => {
+      const col = a.state === 'Focused' ? 'var(--green)' : a.state === 'Distracted' ? 'var(--yellow)' : 'var(--red)';
+      return `<div class="activity-item">
+        <span class="activity-time">${a.time}</span>
+        <div class="activity-dot" style="background:${col}"></div>
+        <span style="color:${col};font-weight:600">${a.state}</span>
+      </div>`;
+    }).join('');
+  }
+
+  // Donut
+  setDonut('donutF','donutD','donutA', 40, d.f_pct, d.d_pct, d.a_pct);
+  document.getElementById('legFPct').textContent = fpct;
+  document.getElementById('legDPct').textContent = dpct;
+  document.getElementById('legAPct').textContent = apct;
+
+  drawChart('dashChartCanvas', scoreHistory);
+
+  // ── Live ──
+  document.getElementById('lScore').textContent  = d.score + '%';
+  document.getElementById('lDuration').textContent = d.duration;
+  document.getElementById('lFPct').textContent   = fpct;
+  document.getElementById('lDPct').textContent   = dpct;
+  document.getElementById('lAPct').textContent   = apct;
+  document.getElementById('lStreak').textContent = stk;
+  document.getElementById('bFPct').textContent = fpct; document.getElementById('bFBar').style.width = fpct;
+  document.getElementById('bDPct').textContent = dpct; document.getElementById('bDBar').style.width = dpct;
+  document.getElementById('bAPct').textContent = apct; document.getElementById('bABar').style.width = apct;
+  renderSparkline(d.history);
+
+  // ── Statistics ──
+  document.getElementById('stScore').textContent    = d.score + '%';
+  document.getElementById('stScoreSub').textContent = scoreGrade(d.score);
+  document.getElementById('stDuration').textContent = d.duration;
+  document.getElementById('stFrames').textContent   = d.total;
+  document.getElementById('stFps').textContent      = (d.avg_fps||0).toFixed(1);
+  document.getElementById('stFPct').textContent = fpct;
+  document.getElementById('stDPct').textContent = dpct;
+  document.getElementById('stAPct').textContent = apct;
+  setDonut('donutF2','donutD2','donutA2', 35, d.f_pct, d.d_pct, d.a_pct);
+  drawChart('statsChartCanvas', scoreHistory);
+
+  const summary = `You were focused for ${fpct} of the session.\nYour longest focus streak was ${stk}.`;
+  document.getElementById('summaryText').textContent = summary;
+  document.getElementById('trophyRow').textContent = d.score >= 65 ? '🏆' : '';
+}
+
+function scoreColor(s) {
+  if (s >= 70) return 'green';
+  if (s >= 40) return 'yellow';
+  return 'red';
+}
+
+// ── Session End Overlay ────────────────────────────────
+function showEndOverlay(summary) {
+  document.getElementById('endScore').textContent    = summary.score + '%';
+  document.getElementById('endDuration').textContent = summary.duration;
+  document.getElementById('endStreak').textContent   = summary.longest;
+  document.getElementById('endOverlay').classList.add('show');
+}
+function closeEndOverlay() {
+  document.getElementById('endOverlay').classList.remove('show');
+  showPage('dashboard');
+}
+function viewSummary() {
+  document.getElementById('endOverlay').classList.remove('show');
+  showPage('statistics');
+}
+
+// ── Page Navigation ────────────────────────────────────
+function showPage(id) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-' + id).classList.add('active');
+  const navMap = { dashboard:0, live:1, statistics:2, history:3, settings:4, about:5 };
+  const navItems = document.querySelectorAll('.nav-item');
+  if (navMap[id] !== undefined) navItems[navMap[id]].classList.add('active');
+
+  if (id === 'history')   loadHistory(false);
+  if (id === 'settings')  loadSettings();
+  if (id === 'statistics') { drawChart('statsChartCanvas', scoreHistory); }
+  if (id === 'dashboard')  { drawChart('dashChartCanvas', scoreHistory); }
+}
+
+// ── History ────────────────────────────────────────────
+async function loadHistory(append) {
+  if (!append) historyPage = 1;
+  const res  = await fetch('/history?page=' + historyPage);
+  const data = await res.json();
+  const tbody = document.getElementById('historyBody');
+
+  if (!append || historyPage === 1) tbody.innerHTML = '';
+
+  if (!data.sessions || data.sessions.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text2);padding:30px">No sessions recorded yet.</td></tr>';
+    document.getElementById('loadMoreWrap').style.display = 'none';
+    return;
+  }
+
+  data.sessions.forEach(s => {
+    const sc = s.score >= 70 ? 'green' : s.score >= 40 ? 'yellow' : 'red';
+    tbody.innerHTML += `<tr>
+      <td>${s.date}</td>
+      <td class="mono">${s.duration}</td>
+      <td class="${sc} mono">${s.score}%</td>
+      <td class="green mono">${s.focused}%</td>
+      <td class="yellow mono">${s.distracted}%</td>
+      <td class="red mono">${s.away}%</td>
+      <td class="mono">${s.longest}</td>
+    </tr>`;
+  });
+
+  document.getElementById('loadMoreWrap').style.display = data.has_more ? 'block' : 'none';
+  if (append) historyPage++;
+}
+
+// ── Settings ───────────────────────────────────────────
+async function loadSettings() {
+  const res = await fetch('/settings');
+  const s   = await res.json();
+  document.getElementById('setFps').value    = s.fps_limit;
+  document.getElementById('setFpsVal').textContent = s.fps_limit;
+  document.getElementById('setAway').value   = s.away_threshold;
+  document.getElementById('setAwayVal').textContent = s.away_threshold;
+  document.getElementById('setFaceBox').checked = s.show_face_detection;
+  document.getElementById('setEyeBox').checked  = s.show_eye_detection;
+  document.getElementById('setOverlay').checked = s.show_overlay_info;
+  document.getElementById('setNotify').checked  = s.notify_when_away;
+  document.getElementById('setTheme').value     = s.theme;
+}
+
+async function saveSetting(key, value) {
+  await fetch('/settings', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({[key]: value})
+  });
+}
+
+async function resetSettings() {
+  await fetch('/settings/reset', { method: 'POST' });
+  loadSettings();
+}
+
+// ── Init ───────────────────────────────────────────────
+window.addEventListener('resize', () => {
+  drawChart('dashChartCanvas', scoreHistory);
+  drawChart('statsChartCanvas', scoreHistory);
+});
+drawChart('dashChartCanvas', scoreHistory);
+</script>
+</body>
+</html>
